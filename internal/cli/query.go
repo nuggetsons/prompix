@@ -2,9 +2,11 @@ package cli
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/nuggetsons/prompix/internal/prometheus"
+	"github.com/nuggetsons/prompix/internal/render"
 )
 
 type RenderCmd struct {
@@ -34,9 +36,69 @@ func (cmd *RenderCmd) Run() error {
 		return fmt.Errorf("failed to query Prometheus: %w", err)
 	}
 
-	fmt.Printf("Prometheus Response: %+v\n", response)
+	status := response.Status
+	if status != "success" {
+		return fmt.Errorf("Prometheus query failed with status: %s", status)
+	}
 
-	// call render
+	results := response.Data.Result
+	all_timeseries := make(map[string][][]float64)
 
+	for _, r := range results {
+		metric := r.Metric
+		values := r.Values
+
+		labels := ""
+
+		for key, val := range metric {
+			labels += key + "=" + val + ","
+		}
+
+		labels = labels[:len(labels)-1]
+
+		timeseries, err := cmd.convert(values)
+		if err != nil {
+			return err
+		}
+
+		all_timeseries[labels] = timeseries
+	}
+
+	err = render.Render(cmd.Query, all_timeseries, cmd.Width, cmd.Height, cmd.Output)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Saved to %s\n", cmd.Output)
 	return nil
+}
+
+func (cmd *RenderCmd) convert(values []any) ([][]float64, error) {
+	result := make([][]float64, len(values))
+
+	for i := range values {
+		point, ok := values[i].([]any)
+		if !ok {
+			return [][]float64{}, fmt.Errorf("failed to convert value to []any")
+		}
+
+		time, ok := point[0].(float64)
+		if !ok {
+			return [][]float64{}, fmt.Errorf("failed to convert time to float64")
+		}
+
+		valStr, ok := point[1].(string)
+		if !ok {
+			return [][]float64{}, fmt.Errorf("failed to convert value to string")
+		}
+
+		val, err := strconv.ParseFloat(valStr, 64)
+		if err != nil {
+			return [][]float64{}, fmt.Errorf("failed to parse value as float64: %w", err)
+		}
+
+		result[i] = []float64{time, val}
+	}
+
+	return result, nil
 }

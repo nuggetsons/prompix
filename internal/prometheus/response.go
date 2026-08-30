@@ -12,5 +12,5 @@ type PromData struct {
 
 type PromResult struct {
 	Metric map[string]string `json:"metric"`
-	Value  []any             `json:"value"`
+	Values []any             `json:"values"`
 }
